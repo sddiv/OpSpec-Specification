@@ -96,4 +96,4 @@ the OpSpec is incomplete. Fix the spec, not the coding agent.
 
 ---
 
-Version: 0.5.0 | Author: Divyendu | Date: 2026-02-27
+Version: 0.5.0 | Author: Divyendu Deepak Singh | Date: 2026-02-27
