@@ -9,11 +9,10 @@ workflow, a GitHub Actions pipeline, a Python module, shell scripts, or whatever
 the target executor requires. The OpSpec is the specification; the produced program
 is the executable. A human can also follow the same OpSpec manually, step by step.
 
-OpSpec is an **independent specification language**. It pairs with NLSpec (a published declarative
-specification language) for software delivery workflows — NLSpec defines *what* to
-build, OpSpec defines *how* to deliver and operate it. But OpSpec stands on its own.
-A claims processing OpSpec, a patient intake OpSpec, or a supply chain OpSpec has
-no NLSpec dependency.
+OpSpec is an **independent specification language**. It can pair with NLSpec (a
+specification standard for what to build) for software delivery workflows, but
+OpSpec stands on its own. A claims processing OpSpec, a patient intake OpSpec,
+or a supply chain OpSpec has no NLSpec dependency.
 
 ---
 
@@ -22,7 +21,6 @@ no NLSpec dependency.
 | File | Purpose |
 |------|---------|
 | `OPSPEC-TEMPLATE.md` | **The OpSpec language definition.** Primitives (STAGE, GATE, BINDING, LEARNING RULE, APPROVAL), section structure, executor requirements, binding types, learning governance, scenario conventions, and worked examples. Start here to write an OpSpec. |
-| `CLAUDE.md` | **Coding agent instructions (Phase 0).** How a coding agent reads an OpSpec and produces an executor program. Six operating modes, failure classification, target platform guidance. |
 
 ---
 
