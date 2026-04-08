@@ -281,6 +281,62 @@ APPROVAL {name}:
   audit        : true  -- always logged
 ```
 
+### INTERACTION — Customer-Facing Touchpoint
+
+An INTERACTION declares a point where the workflow communicates with an
+external party (customer, patient, applicant, etc.). Unlike APPROVAL which
+is an internal human review gate, INTERACTION represents outbound
+communication that awaits a response or produces a deliverable.
+
+```
+INTERACTION {name}:
+  target       : {who — customer, patient, applicant, vendor, etc.}
+  channel      : {how — email, chat, SMS, portal, API callback, etc.}
+  content      : {what — template reference, BINDING reference, or inline}
+  tone         : {professional | empathetic | technical | neutral}
+  expects      : {what response is expected — acknowledgment, rating, reply, none}
+  timeout      : {how long to wait for response before escalation}
+  on_no_response: {action — remind, escalate, close, retry}
+  max_retries  : {integer — attempts before giving up}
+  satisfies    : {STAGE reference — which stage this interaction belongs to}
+  audit        : true  -- always logged
+```
+
+INTERACTION differs from APPROVAL in three ways:
+1. **Audience**: APPROVAL is internal (team members). INTERACTION is external (customers).
+2. **Content**: APPROVAL presents work for review. INTERACTION delivers a response or communication.
+3. **Outcome**: APPROVAL gates workflow progression. INTERACTION collects feedback signals.
+
+### FEEDBACK_RULE — Satisfaction-Driven Graduation
+
+A FEEDBACK_RULE declares how customer/external feedback signals drive
+pattern graduation into deterministic rules. This is the customer-facing
+equivalent of LEARNING RULE — while LEARNING RULE observes operational
+patterns, FEEDBACK_RULE observes satisfaction signals.
+
+```
+FEEDBACK_RULE {name}:
+  observes       : {what signals — satisfaction ratings, reopens, escalation requests}
+  source         : {INTERACTION reference — which interaction produces the signal}
+  positive_signal: {what counts as positive — rating >= 4, no reopen within 7d, etc.}
+  negative_signal: {what counts as negative — rating <= 2, reopen, escalation request}
+  accumulates    : {what pattern — category + severity + response template hash}
+  graduation:
+    threshold    : {integer — consecutive positive signals before candidate}
+    quality_min  : {float — minimum average score}
+    window       : {duration — accumulation window}
+  proposes       : {what the graduated rule does — template response, auto-route, etc.}
+  boundary       : {limits — categories excluded, severity cap, etc.}
+  approval       : {APPROVAL reference — human must approve graduation}
+  suspend_on     : {conditions — first negative signal, reopen, etc.}
+  evidence       : {what to show approver — ticket IDs, satisfaction scores, templates}
+```
+
+FEEDBACK_RULE differs from LEARNING RULE in three ways:
+1. **Signal source**: LEARNING RULE observes operational metrics. FEEDBACK_RULE observes customer satisfaction.
+2. **Graduation output**: LEARNING RULE proposes operational changes. FEEDBACK_RULE proposes response templates.
+3. **Quality gate**: LEARNING RULE uses success/failure. FEEDBACK_RULE uses satisfaction scores.
+
 ---
 
 ## Section Declaration
@@ -295,7 +351,9 @@ SECTIONS:
   Workflow             — STAGEs and GATEs in execution order
   Bindings             — agent artifact templates (prompts, rules, MCP tools, configs)
   Approvals            — human interaction points
+  Interactions         — customer/external-facing touchpoints
   Learning             — adaptive behavior rules and governance
+  Feedback             — satisfaction-driven graduation rules
   Observability        — what the executor monitors and reports
   Rollback             — recovery procedures for each stage
   Scenarios            — validation scenarios for the workflow itself
@@ -982,6 +1040,8 @@ CONFIG timeouts:
 | **BINDING** | Generates agent artifacts (prompts, rules, configs, tools) | A factory that produces the executor's runtime behavior |
 | **LEARNING RULE** | Governed self-modification based on observed patterns | A feedback loop with guardrails |
 | **APPROVAL** | Human interaction point — the executor pauses and waits | A sign-off gate in any approval chain |
+| **INTERACTION** | Customer-facing touchpoint — outbound communication that may await response | A customer service reply, a patient notification, a claim status update |
+| **FEEDBACK_RULE** | Satisfaction-driven graduation based on external feedback signals | A feedback loop that turns positive customer responses into deterministic rules |
 
 ### NLSpec Primitive Mapping (for software delivery workflows)
 
@@ -996,6 +1056,8 @@ When OpSpec is used alongside an NLSpec for software delivery, the primitives ma
 | — | BINDING | Agent artifact generation (no NLSpec equivalent) |
 | — | LEARNING RULE | Self-modification (no NLSpec equivalent) |
 | — | APPROVAL | Human interaction (no NLSpec equivalent) |
+| — | INTERACTION | Customer-facing touchpoint (no NLSpec equivalent) |
+| — | FEEDBACK_RULE | Satisfaction-driven graduation (no NLSpec equivalent) |
 | DEPENDENCY | EXPECTS | External requirements |
 | EXPORT | EXPORT | What this spec provides to others |
 | Config | Config | Tunable parameters |

@@ -20,7 +20,7 @@ or a supply chain OpSpec has no NLSpec dependency.
 
 | File | Purpose |
 |------|---------|
-| `OPSPEC-TEMPLATE.md` | **The OpSpec language definition.** Primitives (STAGE, GATE, BINDING, LEARNING RULE, APPROVAL), section structure, executor requirements, binding types, learning governance, scenario conventions, and worked examples. Start here to write an OpSpec. |
+| `OPSPEC-TEMPLATE.md` | **The OpSpec language definition.** Primitives (STAGE, GATE, BINDING, LEARNING RULE, APPROVAL, INTERACTION, FEEDBACK_RULE), section structure, executor requirements, binding types, learning governance, scenario conventions, and worked examples. Start here to write an OpSpec. |
 
 ---
 
@@ -44,6 +44,10 @@ or a supply chain OpSpec has no NLSpec dependency.
 
 **APPROVAL** — A human interaction point where the executor pauses and waits.
 
+**INTERACTION** — A customer-facing touchpoint where the workflow communicates with an external party (customer, patient, applicant). Unlike APPROVAL (internal review), INTERACTION represents outbound communication that may await a response or collect feedback.
+
+**FEEDBACK_RULE** — Satisfaction-driven graduation: the workflow observes customer feedback signals (ratings, reopens, escalation requests), accumulates positive patterns, and graduates them into deterministic rules that bypass LLM stages. The customer-facing counterpart to LEARNING RULE.
+
 **Executor** — The system that runs the produced program. Can be a workflow engine (Temporal, Airflow), a CI/CD pipeline (GitHub Actions, Jenkins), a controller, or a shell runner.
 
 ---
@@ -59,6 +63,7 @@ OpSpec applies to any operational workflow:
 - Supply chain orchestration (order → source → manufacture → ship → deliver)
 - Content moderation (receive → classify → review → act → appeal)
 - Customer onboarding (sign-up → verify → provision → train → activate)
+- Customer support (intake → classify → route → draft → review → feedback → graduate)
 
 ---
 
@@ -78,11 +83,19 @@ OpSpec applies to any operational workflow:
 5. **Declare APPROVALs** — identify where humans enter the loop. Every APPROVAL
    has a channel, SLA, and escalation path.
 
-6. **Set LEARNING BOUNDARIES** — declare what can never change (IMMUTABLE), what
+6. **Add INTERACTIONs** — if the workflow communicates with external parties
+   (customers, patients, applicants), declare INTERACTION blocks with target,
+   channel, expected response, and timeout behavior.
+
+7. **Set LEARNING BOUNDARIES** — declare what can never change (IMMUTABLE), what
    needs human approval to change (MUTABLE_WITH_APPROVAL), and what can self-tune
    (AUTO_TUNABLE).
 
-7. **Write SCENARIOS** — validate the workflow itself: happy path, rework loops,
+8. **Add FEEDBACK_RULEs** — if the workflow collects satisfaction signals from
+   external parties, declare how positive patterns graduate into deterministic
+   rules with thresholds, quality gates, and suspension conditions.
+
+9. **Write SCENARIOS** — validate the workflow itself: happy path, rework loops,
    failure escalation, approval flows, rollback, and learning.
 
 ### The NALSD Test
@@ -94,4 +107,4 @@ the OpSpec is incomplete. Fix the spec, not the coding agent.
 
 ---
 
-Version: 0.5.0 | Author: Divyendu Deepak Singh | Date: 2026-02-27
+Version: 0.6.0 | Author: Divyendu Deepak Singh | Date: 2026-04-07
