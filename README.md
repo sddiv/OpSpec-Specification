@@ -9,6 +9,13 @@ workflow, a GitHub Actions pipeline, a Python module, shell scripts, or whatever
 the target executor requires. The OpSpec is the specification; the produced program
 is the executable. A human can also follow the same OpSpec manually, step by step.
 
+```
+OpSpec (specification)  →  Coding Agent  →  Executor Program (executable artifact)
+                                                    ↓
+                                            Executor runs it
+                                            (Workflow engine, CI/CD pipeline, controller, shell runner)
+```
+
 OpSpec is an **independent specification language**. It can pair with NLSpec (a
 specification standard for what to build) for software delivery workflows, but
 OpSpec stands on its own. A claims processing OpSpec, a patient intake OpSpec,
@@ -20,7 +27,7 @@ or a supply chain OpSpec has no NLSpec dependency.
 
 | File | Purpose |
 |------|---------|
-| `OPSPEC-TEMPLATE.md` | **The OpSpec language definition.** 24 primitives across three categories: workflow (STAGE, GATE, BINDING, LEARNING RULE, APPROVAL, INTERACTION, FEEDBACK_RULE, TOPOLOGY, PIPELINE, RULE, RECORD), harness (RUNBOOK, LIFECYCLE, CONFIG, METRIC, SCHEDULE, STRATEGY, ROLLBACK, PROMOTE, ESCALATION, NOTIFY, GRADUATED, REMEDIATION), and coordination (CONTRACT). Section structure, executor requirements, binding types, learning governance, scenario conventions, and worked examples. Start here to write an OpSpec. |
+| `OPSPEC-TEMPLATE.md` | **The OpSpec language definition and fill-in template.** 27 primitives across three categories (workflow, harness, coordination), section structure, executor requirements, binding types, learning governance, scenario conventions, NLSpec mapping, and worked examples. Start here to write an OpSpec. |
 
 ---
 
@@ -32,39 +39,75 @@ or a supply chain OpSpec has no NLSpec dependency.
 
 ---
 
-## Key Concepts
+## Primitives
 
-**STAGE** — A phase of work with entry/exit conditions and concrete operations.
+OpSpec has 27 primitives in three categories.
 
-**GATE** — A three-band decision point (PASS / REWORK / FAIL) between stages.
+### Workflow Primitives
+
+The backbone of any OpSpec. Referenced by stages as dependencies, executed in sequence.
+
+**STAGE** — A phase of work with entry conditions, concrete operations, and exit conditions.
+
+**GATE** — A three-band decision point (PASS / REWORK / FAIL) between stages. Every GATE has concrete criteria — no "use good judgment."
 
 **BINDING** — An artifact template (prompt, rule, tool config) that the coding agent produces as part of the executor program.
 
 **LEARNING RULE** — Governed self-modification: the workflow observes patterns, proposes changes to itself, and submits them for approval within declared boundaries.
 
-**APPROVAL** — A human interaction point where the executor pauses and waits.
+**APPROVAL** — A human interaction point where the executor pauses and waits. Every APPROVAL has a channel, SLA, and escalation path.
 
 **INTERACTION** — A customer-facing touchpoint where the workflow communicates with an external party (customer, patient, applicant). Unlike APPROVAL (internal review), INTERACTION represents outbound communication that may await a response or collect feedback.
 
-**FEEDBACK_RULE** — Satisfaction-driven graduation: the workflow observes customer feedback signals (ratings, reopens, escalation requests), accumulates positive patterns, and graduates them into deterministic rules that bypass LLM stages. The customer-facing counterpart to LEARNING RULE.
+**FEEDBACK_RULE** — Satisfaction-driven graduation: the workflow observes customer feedback signals (ratings, reopens, escalation requests), accumulates positive patterns, and graduates them into deterministic rules that bypass LLM stages.
 
-**TOPOLOGY** — Infrastructure layout: the operational surface an OpSpec operates on. Provider, region, services, bindings.
+**TOPOLOGY** — Infrastructure layout: provider, region, services, bindings. The operational surface the OpSpec operates on.
 
-**METRIC** — A monitoring condition with source, threshold, and action. How OpSpecs express health checks, SLOs, and alerting.
+**PIPELINE** — Execution structure with stage ordering and dependencies.
 
-**SCHEDULE** — A cron-triggered operation. Time-based execution.
+**RULE** — A deterministic condition-action pair with lifecycle (draft/active/suspended/retired), versioning, priority-based conflict resolution, and CEL support for complex matching.
 
-**CONTRACT** — A capability declaration for multi-agent coordination. What an executor can do, what surfaces it manages, what constraints apply.
+**RECORD** — Structured data referenced by stages and bindings. A data model or schema.
+
+**CONDUIT** — An adapter that converts OpSpec instructions into concrete config files for an operational surface (Kubernetes, Cloudflare, AWS, etc.). Has a four-phase lifecycle: plan, generate, validate, drift. Handles version negotiation and schema validation.
+
+### Harness Primitives
+
+Consumed by the executor's runtime, not by individual workflow stages. These configure runtime behavior: monitoring, scheduling, deployment strategy, incident response.
 
 **RUNBOOK** — Human-readable operational procedures. Reference material for incident response, consulted by both humans and agents.
 
 **LIFECYCLE** — A state machine for deployment or operational lifecycle. Defines valid state transitions.
 
+**CONFIG** — Runtime configuration consumed by the executor. Environment variables, knobs, and tunable parameters.
+
+**METRIC** — A monitoring condition with source, threshold, and action. How OpSpecs express health checks, SLOs, and alerting.
+
+**SCHEDULE** — A cron-triggered operation. Time-based execution.
+
 **STRATEGY** — Deployment strategy (canary, blue-green, rolling, immediate) with rollout parameters.
+
+**ROLLBACK** — Recovery trigger and actions. What fires a rollback and what the rollback does.
+
+**PROMOTE** — Environment promotion with gates. How artifacts move from staging to production.
+
+**ESCALATION** — Escalation policy with severity tiers, channels, and timeouts.
+
+**NOTIFY** — Notification template with channel and runtime variables.
 
 **GRADUATED** — A learned pattern that has been graduated into a deterministic rule. Bypasses reasoning.
 
-**Executor** — The system that runs the produced program. Can be a workflow engine (Temporal, Airflow), a CI/CD pipeline (GitHub Actions, Jenkins), a controller, or a shell runner.
+**REMEDIATION** — Autonomous remediation with scope, validation, and fallback.
+
+### Coordination Primitives
+
+Used for multi-agent communication in deployments where multiple executors collaborate.
+
+**CONTRACT** — A capability declaration for multi-agent coordination. What an executor can do, what surfaces it manages, what constraints apply.
+
+**FENCE** — CAS-based resource fencing for concurrent executor safety. Multiple readers, exclusive writer. TTL-based expiry prevents dead executors from holding fences indefinitely. No central lock manager.
+
+**RECONCILE** — Leaderless distributed reconciliation via epoch-based CAS. Every executor independently observes shared state, proposes mutations, and applies via compare-and-swap. Includes distributed takeover for reclaiming orphaned tasks from dead executors.
 
 ---
 
@@ -111,8 +154,14 @@ OpSpec applies to any operational workflow:
    external parties, declare how positive patterns graduate into deterministic
    rules with thresholds, quality gates, and suspension conditions.
 
-9. **Write SCENARIOS** — validate the workflow itself: happy path, rework loops,
-   failure escalation, approval flows, rollback, and learning.
+9. **Add Operational Primitives** — declare TOPOLOGYs for infrastructure layout,
+   METRICs for monitoring, SCHEDULEs for cron operations, STRATEGYs for deployment
+   rollout, ESCALATIONs for incident routing, CONDUITs for config generation,
+   CONTRACTs for multi-agent coordination, FENCEs for resource safety, and
+   RECONCILEs for distributed consensus.
+
+10. **Write SCENARIOS** — validate the workflow itself: happy path, rework loops,
+    failure escalation, approval flows, rollback, and learning.
 
 ### The NALSD Test
 
@@ -123,4 +172,4 @@ the OpSpec is incomplete. Fix the spec, not the coding agent.
 
 ---
 
-Version: 0.7.0 | Author: Divyendu Deepak Singh | Date: 2026-04-08
+Version: 0.9.0 | Author: Divyendu Deepak Singh | Date: 2026-04-08

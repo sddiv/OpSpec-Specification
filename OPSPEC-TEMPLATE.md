@@ -1,6 +1,6 @@
 # {WORKFLOW_NAME} — Operational Specification
 
-> **Version:** 0.1.0
+> **Version:** 0.2.0
 > **Author:** {AUTHOR}
 > **Date:** {DATE}
 > **Status:** {Draft | Review | Approved | Active | Retired}
@@ -147,12 +147,12 @@ Android app can run on every Android phone.
 
 ## OpSpec Primitives
 
-OpSpec has 24 primitives organized into three categories: workflow (the
-backbone — STAGE, GATE, BINDING, etc.), harness (runtime behavior —
+OpSpec has 27 primitives organized into three categories: workflow (the
+backbone — STAGE, GATE, BINDING, CONDUIT, etc.), harness (runtime behavior —
 METRIC, SCHEDULE, LIFECYCLE, etc.), and coordination (multi-agent —
-CONTRACT). The workflow primitives are defined here. Operational and
-coordination primitives are defined in the Operational Primitives
-section below.
+CONTRACT, FENCE, RECONCILE). The workflow primitives are defined here.
+Operational and coordination primitives are defined in the Operational
+Primitives section below.
 
 ### Workflow Primitives
 
@@ -366,7 +366,8 @@ SECTIONS:
   Scenarios            — validation scenarios for the workflow itself
   Boundaries           — what this OpSpec does NOT cover
   Contracts            — what this OpSpec exports to and expects from other specs
-  Operational          — operational primitives (TOPOLOGY, METRIC, SCHEDULE, CONTRACT, etc.)
+  Operational          — operational primitives (TOPOLOGY, METRIC, SCHEDULE, CONDUIT, etc.)
+  Coordination         — multi-executor primitives (CONTRACT, FENCE, RECONCILE)
 ```
 
 ---
@@ -1027,11 +1028,46 @@ A deterministic condition-action pair. Unlike GATE (which routes workflow
 flow), RULE declares a standing rule that the executor enforces
 continuously or at declared checkpoints.
 
+Rules have a lifecycle: they are drafted, reviewed, activated, and can be
+suspended or retired. Active rules are versioned — every edit creates a
+new version. When multiple rules match an event, priority determines which
+fires. Rules can use CEL (Common Expression Language) for complex matching.
+
 ```
 RULE {name}:
   condition : {CEL expression or plain-English condition}
   action    : {what happens when condition is true}
   scope     : {where this rule applies — stage, gate, or global}
+  priority  : {integer — higher wins on conflict, default 100}
+  status    : {DRAFT | ACTIVE | SUSPENDED | RETIRED}
+  version   : {integer — incremented on each edit}
+  tags      : [{categorization tags for matching and filtering}]
+```
+
+**Rule lifecycle:**
+1. **Draft** — Rule is written but not enforced. Can be tested in dry-run.
+2. **Active** — Rule is enforced by the executor. Edits create new versions.
+3. **Suspended** — Rule exists but is temporarily not enforced (e.g., after
+   a false positive). Can be reactivated without re-approval.
+4. **Retired** — Rule is permanently deactivated. Kept for audit trail.
+
+**Priority resolution:** When multiple active rules match the same event,
+the rule with the highest priority fires. On tie, the rule with the higher
+success rate (from runtime statistics) wins. On further tie, the more
+recently activated rule wins.
+
+**CEL matching:** For complex conditions that go beyond simple thresholds,
+rules can use CEL expressions. CEL provides type-safe, sandboxed evaluation
+without arbitrary code execution:
+```
+RULE custom_routing:
+  condition : |
+    event.severity >= 2 &&
+    event.category in ["network", "dns"] &&
+    event.region.startsWith("us-")
+  action    : route_to("us-network-team")
+  priority  : 200
+  status    : ACTIVE
 ```
 
 ### RECORD — Structured Data
@@ -1044,6 +1080,61 @@ RECORD {name}:
   {field} : {type} -- {description}
   {field} : {type} -- {description}
 ```
+
+### CONDUIT — Adapter-Based Config Generation
+
+Declares an adapter that converts OpSpec instructions into concrete
+configuration files for an operational surface. CONDUIT is the bridge
+between "what the OpSpec says" and "what the target system needs" —
+it handles version differences, format translation, and drift detection.
+
+A CONDUIT has a four-phase lifecycle: plan (analyze what to generate),
+generate (produce configs), validate (check against schema), drift
+(compare generated vs live). This lifecycle runs inside the workflow's
+Resolve or Deploy stage.
+
+```
+CONDUIT {name}:
+  SURFACE: {target — cloudflare, kubernetes, aws, github, etc.}
+  VERSIONS: [{supported surface versions — "1.28+", "v2", etc.}]
+
+  INPUTS:
+    - {OpSpec block type this adapter reads — TOPOLOGY, CONFIG, BINDING, etc.}
+
+  TEMPLATES:
+    {template_name}:
+      output    : {file path pattern — "k8s/deployment.yaml", "wrangler.toml"}
+      format    : {TOML | YAML | JSON | HCL | INI | SQL | SHELL | DOCKERFILE}
+      schema    : {schema URL for validation, or "none"}
+      merge     : {OVERWRITE | MERGE_KEYS | APPEND | SKIP_IF_EXISTS}
+
+  VERSION_NEGOTIATION:
+    detect    : {how to detect live surface version — API call, file parse, etc.}
+    fallback  : {what to do on version mismatch — degrade, error, LLM-assisted}
+
+  DRIFT:
+    enabled   : {true | false}
+    schedule  : {when to check — on_deploy, cron, manual}
+    severity:
+      cosmetic  : {action — log only}
+      semantic  : {action — warn, block, or auto-fix}
+      breaking  : {action — block deploy, escalate}
+```
+
+**CONDUIT lifecycle:**
+1. **Plan** — Adapter reads OpSpec blocks (TOPOLOGY, CONFIG, etc.) and the
+   current live files. Produces a plan: files to create, update, delete.
+2. **Generate** — Adapter renders templates with OpSpec values. Produces
+   concrete config files in a sandbox.
+3. **Validate** — Each generated file is validated against its declared schema.
+   Errors block the pipeline. Warnings are logged.
+4. **Drift** — Adapter compares generated configs against live configs.
+   Drift is classified by severity. Breaking drift blocks deployment.
+
+CONDUIT differs from CONFIG BINDING in scope: a CONFIG BINDING produces
+one configuration artifact for one stage. A CONDUIT produces all
+configuration artifacts for an entire operational surface, with version
+negotiation, schema validation, and drift detection built in.
 
 ### RUNBOOK — Operational Runbook
 
@@ -1230,6 +1321,82 @@ CONTRACT {name}:
 CONTRACT blocks are consumed by the coordination layer at runtime, not
 by individual workflow stages.
 
+### FENCE — Resource Fencing
+
+Declares a CAS-based (compare-and-swap) resource fence for multi-agent
+coordination. When multiple executors operate on shared resources, FENCE
+prevents concurrent mutation — one executor holds the fence, others wait
+or are denied.
+
+FENCE is leaderless — there is no central lock manager. Each executor
+acquires fences by CAS-writing to the shared state store. If the CAS
+fails (another executor holds the fence), the acquisition fails
+atomically. TTL-based expiry prevents dead executors from holding fences
+indefinitely.
+
+```
+FENCE {name}:
+  resource    : {what is being fenced — service, config, database, etc.}
+  operations  : [{what the holder can do — READ | WRITE | DEPLOY | REMEDIATE}]
+  ttl         : {duration — how long the fence lives before auto-expiry}
+  queue       : {true | false — whether denied requests queue or fail fast}
+  queue_timeout: {duration — max wait time in queue, if queue is true}
+  on_expiry   : {what happens when TTL expires — release, escalate, extend}
+  version     : {CAS version field — incremented on every acquire/release}
+```
+
+**Fencing model:**
+- **Multiple readers, exclusive writer.** READ fences can overlap.
+  WRITE/DEPLOY/REMEDIATE fences are exclusive.
+- **TTL-based liveness.** If an executor dies while holding a fence, the
+  TTL expires and the fence is released. No manual intervention needed.
+- **CAS safety.** Acquire and release are both CAS operations on the
+  version field. Stale releases are rejected.
+
+### RECONCILE — Distributed Reconciliation
+
+Declares a leaderless reconciliation loop where every executor independently
+observes shared state, proposes mutations, and applies them via CAS
+(compare-and-swap). No leader election, no lease, no single point of
+failure.
+
+RECONCILE is the distributed consensus primitive for multi-executor
+deployments. Every executor runs the same reconciliation logic independently.
+Safety comes from epoch-based CAS at the state store — only one executor's
+mutation wins per epoch. Losers detect the stale epoch and retry next cycle.
+
+```
+RECONCILE {name}:
+  observes    : {what shared state to read — graph, topology, metrics, etc.}
+  epoch       : {epoch field in state store — monotonic counter}
+  proposes    : {what mutations this reconciler can propose}
+  apply_via   : CAS  -- always CAS, never direct write
+  max_intents : {integer — max mutations proposed per cycle}
+  cycle       : {when to reconcile — on_heartbeat, on_event, cron}
+
+  ON_CAS_FAIL:
+    action    : {retry_next_cycle | backoff | escalate}
+    max_retries: {integer — before giving up and escalating}
+
+  DISTRIBUTED_TAKEOVER:
+    heartbeat : {how executors signal liveness — interval, state store field}
+    orphan_timeout: {duration — how long before a silent executor's work is reclaimed}
+    checkpoint: {true | false — whether tasks checkpoint progress for resumption}
+    dead_letter: {what happens to unrecoverable tasks — queue, escalate, drop}
+```
+
+**Reconciliation model:**
+1. Executor reads shared state and its epoch.
+2. Executor computes proposed mutations (deterministic, pure function of state).
+3. Executor CAS-writes mutations with the epoch it read.
+4. If CAS succeeds — mutation applied, epoch incremented.
+5. If CAS fails — another executor mutated first. Abort, retry next cycle.
+
+**Distributed takeover:** When an executor dies, its in-flight tasks become
+orphaned. Any executor can detect orphaned tasks (heartbeat timeout) and
+reclaim them via CAS. Checkpointed tasks resume from their last checkpoint
+rather than restarting from scratch.
+
 ### Primitive Categories
 
 Primitives fall into three categories based on how they're consumed:
@@ -1237,7 +1404,7 @@ Primitives fall into three categories based on how they're consumed:
 **Workflow primitives** — the backbone of any OpSpec. Referenced by
 stages as dependencies, executed in sequence.
   STAGE, GATE, BINDING, APPROVAL, INTERACTION, LEARNING RULE,
-  FEEDBACK_RULE, TOPOLOGY, PIPELINE, RULE, RECORD
+  FEEDBACK_RULE, TOPOLOGY, PIPELINE, RULE, RECORD, CONDUIT
 
 **Harness primitives** — consumed by the executor's runtime, not by
 individual workflow stages. These configure runtime behavior: monitoring,
@@ -1247,7 +1414,7 @@ scheduling, deployment strategy, incident response.
 
 **Coordination primitives** — used for multi-agent communication in
 deployments where multiple executors collaborate.
-  CONTRACT
+  CONTRACT, FENCE, RECONCILE
 
 Tooling that validates OpSpecs distinguishes between these categories.
 A workflow primitive referenced by no STAGE is likely an error. A harness
@@ -1268,6 +1435,7 @@ primitive referenced by no STAGE is expected — it's consumed at runtime.
 | PIPELINE | workflow | (stages) | Execution structure |
 | RULE | workflow | condition, action | Deterministic rule |
 | RECORD | workflow | (fields) | Structured data |
+| CONDUIT | workflow | SURFACE, TEMPLATES | Adapter-based config generation |
 | RUNBOOK | harness | (free-text) | Operational runbook |
 | LIFECYCLE | harness | states | State machine |
 | CONFIG | harness | (key-value) | Runtime configuration |
@@ -1281,6 +1449,8 @@ primitive referenced by no STAGE is expected — it's consumed at runtime.
 | GRADUATED | harness | pattern, rule | Graduated deterministic rule |
 | REMEDIATION | harness | scope, actions | Autonomous remediation |
 | CONTRACT | coordination | capabilities | Capability declaration |
+| FENCE | coordination | resource, operations, ttl | CAS-based resource fencing |
+| RECONCILE | coordination | observes, epoch, proposes | Leaderless distributed reconciliation |
 
 ---
 
@@ -1367,6 +1537,7 @@ CONFIG timeouts:
 | **PIPELINE** | Execution structure with stages and dependencies | A CI/CD pipeline definition |
 | **RULE** | Deterministic condition-action pair | An if-then policy rule |
 | **RECORD** | Structured data referenced by stages and bindings | A data model or schema |
+| **CONDUIT** | Adapter-based config generation with plan/generate/validate/drift lifecycle | A Helm chart renderer or Terraform provider |
 
 ### Harness Primitives
 
@@ -1390,6 +1561,8 @@ CONFIG timeouts:
 | Primitive | Purpose | Analogy |
 |-----------|---------|---------|
 | **CONTRACT** | Capability declaration for multi-agent coordination | A service contract / API spec |
+| **FENCE** | CAS-based resource fencing for concurrent executor safety | A distributed lock / lease |
+| **RECONCILE** | Leaderless distributed reconciliation via epoch-based CAS | Kafka partition reassignment / Airflow distributed scheduler |
 
 ### NLSpec Primitive Mapping (for software delivery workflows)
 
@@ -1408,6 +1581,9 @@ When OpSpec is used alongside an NLSpec for software delivery, the primitives ma
 | — | FEEDBACK_RULE | Satisfaction-driven graduation (no NLSpec equivalent) |
 | — | TOPOLOGY | Infrastructure layout (no NLSpec equivalent) |
 | — | CONTRACT | Multi-agent coordination (no NLSpec equivalent) |
+| — | CONDUIT | Adapter-based config generation (no NLSpec equivalent) |
+| — | FENCE | Resource fencing (no NLSpec equivalent) |
+| — | RECONCILE | Distributed reconciliation (no NLSpec equivalent) |
 | DEPENDENCY | EXPECTS | External requirements |
 | EXPORT | EXPORT | What this spec provides to others |
 | Config | Config | Tunable parameters |
@@ -1417,5 +1593,6 @@ When OpSpec is used alongside an NLSpec for software delivery, the primitives ma
 ```
 | Version | Date       | Author | Changes                    |
 |---------|------------|--------|----------------------------|
+| 0.2.0   | 2026-04-08 | OE     | Add CONDUIT, FENCE, RECONCILE; enhance RULE with lifecycle/versioning/CEL |
 | 0.1.0   | {date}     | {name} | Initial draft              |
 ```
