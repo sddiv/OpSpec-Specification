@@ -147,7 +147,14 @@ Android app can run on every Android phone.
 
 ## OpSpec Primitives
 
-OpSpec has its own primitives designed for operational workflows:
+OpSpec has 24 primitives organized into three categories: workflow (the
+backbone — STAGE, GATE, BINDING, etc.), harness (runtime behavior —
+METRIC, SCHEDULE, LIFECYCLE, etc.), and coordination (multi-agent —
+CONTRACT). The workflow primitives are defined here. Operational and
+coordination primitives are defined in the Operational Primitives
+section below.
+
+### Workflow Primitives
 
 ### STAGE — A Phase of Work
 
@@ -359,6 +366,7 @@ SECTIONS:
   Scenarios            — validation scenarios for the workflow itself
   Boundaries           — what this OpSpec does NOT cover
   Contracts            — what this OpSpec exports to and expects from other specs
+  Operational          — operational primitives (TOPOLOGY, METRIC, SCHEDULE, CONTRACT, etc.)
 ```
 
 ---
@@ -965,6 +973,317 @@ SOURCE MAPPING:
 
 ---
 
+## Operational Primitives
+
+Beyond the workflow primitives (STAGE, GATE, BINDING, LEARNING RULE,
+APPROVAL, INTERACTION, FEEDBACK_RULE), OpSpec defines operational
+primitives for infrastructure, orchestration, lifecycle management,
+and multi-agent coordination. These are first-class OpSpec block types —
+not every OpSpec uses every one, but any OpSpec can.
+
+Not every OpSpec uses every primitive. A claims processing OpSpec might
+use only STAGE, GATE, BINDING, and APPROVAL. An infrastructure OpSpec
+might use TOPOLOGY, PIPELINE, LIFECYCLE, METRIC, SCHEDULE, and CONTRACT.
+The primitives are the language; the OpSpec instance is the sentence.
+
+### TOPOLOGY — Infrastructure Layout
+
+Declares the operational surface: provider, region, services, bindings.
+TOPOLOGY is the "what exists" block — the infrastructure an OpSpec
+operates on.
+
+```
+TOPOLOGY {name}:
+  PLATFORM: {provider — cloudflare, aws, kubernetes, github, gcp, etc.}
+  REGION: {deployment region or "global"}
+
+  SERVICES:
+    {service_name}:
+      TYPE: {service type — Workers, Pages, Lambda, Deployment, etc.}
+      {service-specific fields}
+
+  BINDINGS:
+    {binding_name}:
+      TYPE: {KV | D1 | R2 | S3 | DynamoDB | etc.}
+      {binding-specific fields}
+```
+
+TOPOLOGY blocks are referenced by STAGEs and op-units as dependencies.
+The executor reads the TOPOLOGY to understand the target surface.
+
+### PIPELINE — Execution Structure
+
+Declares the execution pipeline: stages, parallel groups, dependencies.
+When an OpSpec needs explicit pipeline structure beyond sequential STAGEs.
+
+```
+PIPELINE {name}:
+  {stage declarations with depends, parallel groups, join conditions}
+```
+
+### RULE — Deterministic Rule
+
+A deterministic condition-action pair. Unlike GATE (which routes workflow
+flow), RULE declares a standing rule that the executor enforces
+continuously or at declared checkpoints.
+
+```
+RULE {name}:
+  condition : {CEL expression or plain-English condition}
+  action    : {what happens when condition is true}
+  scope     : {where this rule applies — stage, gate, or global}
+```
+
+### RECORD — Structured Data
+
+A structured data record used by the workflow. Referenced by STAGEs and
+BINDINGs for context.
+
+```
+RECORD {name}:
+  {field} : {type} -- {description}
+  {field} : {type} -- {description}
+```
+
+### RUNBOOK — Operational Runbook
+
+A human-readable runbook for incident response or operational procedures.
+The executor consumes RUNBOOK blocks at runtime to guide remediation.
+Unlike STAGE (which is executed), RUNBOOK is consulted — it's reference
+material for both humans and agents.
+
+```
+RUNBOOK {name}:
+  {free-text operational instructions — symptoms, diagnosis steps,
+   remediation actions, escalation paths, post-incident review}
+```
+
+### LIFECYCLE — State Machine
+
+Declares a state machine for a deployment or operational lifecycle.
+The executor manages state transitions and enforces valid paths.
+
+```
+LIFECYCLE {name}:
+  states:
+    {state_name}:
+      transitions: [{target_state}, ...]
+      on_enter   : {action}
+      on_exit    : {action}
+  initial: {start state}
+  terminal: [{end states}]
+```
+
+### CONFIG — Runtime Configuration
+
+Key-value configuration consumed by the executor at runtime. CONFIG
+blocks are not executed — they parameterize execution.
+
+```
+CONFIG {name}:
+  {key}: {value}
+  {key}: {value}
+```
+
+### METRIC — Monitoring Condition
+
+Declares a metric condition the executor monitors. When the condition
+is breached, the declared action fires. This is how OpSpecs express
+health checks, SLOs, and alerting thresholds.
+
+```
+METRIC {name}:
+  source    : {where the metric comes from — API, log, dashboard}
+  condition : {threshold expression — "error_rate > 5% for 5m"}
+  action    : {what happens on breach — ESCALATE, ROLLBACK, NOTIFY}
+  severity  : {SEV-1 | SEV-2 | SEV-3 | etc.}
+```
+
+### SCHEDULE — Cron Operation
+
+Declares a time-triggered operation. The executor runs the operation
+on the declared schedule.
+
+```
+SCHEDULE {name}:
+  cron      : {cron expression — "0 2 * * *"}
+  operation : {what to run — stage reference, command, or action}
+  timeout   : {maximum duration}
+```
+
+### STRATEGY — Deployment Strategy
+
+Declares how a deployment rolls out: all-at-once, canary, blue-green,
+or rolling. The executor implements the strategy with the declared
+parameters.
+
+```
+STRATEGY {name}:
+  type              : {canary | blue_green | rolling | immediate}
+  canary_percent    : {percentage — if canary}
+  canary_duration   : {how long to observe canary}
+  rollback_on       : {condition that triggers automatic rollback}
+  metric_gate       : {METRIC reference — health check during rollout}
+```
+
+### ROLLBACK — Recovery Trigger
+
+Declares when and how to roll back. The executor monitors the trigger
+condition and executes the recovery actions.
+
+```
+ROLLBACK {name}:
+  trigger   : {condition — metric breach, health check failure, manual}
+  actions   : [{ordered recovery steps}]
+  verify    : {how to confirm rollback succeeded}
+```
+
+### PROMOTE — Environment Promotion
+
+Declares promotion from one environment to another (e.g., staging →
+production). The executor handles the promotion with the declared
+strategy and gates.
+
+```
+PROMOTE {name}:
+  source    : {source environment}
+  target    : {target environment}
+  strategy  : {STRATEGY reference}
+  gates     : [{METRIC or GATE references that must pass before promotion}]
+```
+
+### ESCALATION — Escalation Policy
+
+Declares escalation tiers, channels, and timing. When an incident or
+failure exceeds a threshold, the executor escalates through the
+declared chain.
+
+```
+ESCALATION {name}:
+  severity  : {SEV-1 | SEV-2 | SEV-3}
+  channels:
+    - {channel}: {target — Slack channel, PagerDuty service, email}
+  timing:
+    initial   : {when to first notify}
+    reminder  : {how often to re-notify}
+    escalate  : {when to escalate to next tier}
+```
+
+### NOTIFY — Notification Template
+
+Declares a notification the executor sends. NOTIFY blocks are templates
+— the executor fills variables at runtime.
+
+```
+NOTIFY {name}:
+  channel   : {Slack | email | PagerDuty | webhook | etc.}
+  template  : |
+    {notification text with ${variables}}
+  variables : [{variable names filled at runtime}]
+  trigger   : {when to send — stage completion, metric breach, etc.}
+```
+
+### GRADUATED — Graduated Rule
+
+A deterministic rule that was learned through LEARNING RULE observation
+and graduated into a standing rule. GRADUATED blocks bypass the
+executor's reasoning — they fire deterministically.
+
+```
+GRADUATED {name}:
+  pattern   : {the observed pattern that was graduated}
+  rule      : {the deterministic action}
+  source    : {LEARNING RULE reference that produced this}
+  approved  : {timestamp and approver}
+  suspend_on: {conditions that revert to reasoning}
+```
+
+### REMEDIATION — Autonomous Remediation
+
+Declares how the executor autonomously remediates a detected issue.
+REMEDIATION blocks specify scope, actions, validation, and fallback.
+
+```
+REMEDIATION {name}:
+  scope     : {what this remediation covers — service, component, etc.}
+  actions   : [{ordered remediation steps}]
+  validate  : {how to confirm remediation worked — staging test, metric}
+  fallback  : {what to do if remediation fails — escalate, rollback}
+  budget    : {time and resource limits for autonomous attempts}
+```
+
+### CONTRACT — Capability Declaration
+
+Declares what an executor (or agent) can do and under what constraints.
+CONTRACT blocks enable multi-agent coordination — one agent reads
+another's CONTRACT to know what it can dispatch.
+
+```
+CONTRACT {name}:
+  capabilities : [{what this agent can do — REMEDIATE, ROLLBACK, DEPLOY, etc.}]
+  surfaces     : [{operational surfaces this agent manages}]
+  constraints  : {limits — read_only for INVESTIGATE, etc.}
+  authorization: {auth model — what callers can dispatch}
+  sla_floor    : {minimum response time guarantee}
+```
+
+CONTRACT blocks are consumed by the coordination layer at runtime, not
+by individual workflow stages.
+
+### Primitive Categories
+
+Primitives fall into three categories based on how they're consumed:
+
+**Workflow primitives** — the backbone of any OpSpec. Referenced by
+stages as dependencies, executed in sequence.
+  STAGE, GATE, BINDING, APPROVAL, INTERACTION, LEARNING RULE,
+  FEEDBACK_RULE, TOPOLOGY, PIPELINE, RULE, RECORD
+
+**Harness primitives** — consumed by the executor's runtime, not by
+individual workflow stages. These configure runtime behavior: monitoring,
+scheduling, deployment strategy, incident response.
+  RUNBOOK, LIFECYCLE, CONFIG, METRIC, SCHEDULE, STRATEGY, ROLLBACK,
+  PROMOTE, ESCALATION, NOTIFY, GRADUATED, REMEDIATION
+
+**Coordination primitives** — used for multi-agent communication in
+deployments where multiple executors collaborate.
+  CONTRACT
+
+Tooling that validates OpSpecs distinguishes between these categories.
+A workflow primitive referenced by no STAGE is likely an error. A harness
+primitive referenced by no STAGE is expected — it's consumed at runtime.
+
+### Primitive Reference
+
+| Primitive | Category | Required Fields | Purpose |
+|-----------|----------|-----------------|---------|
+| STAGE | workflow | ENTRY, OPERATIONS, EXIT | A phase of work |
+| GATE | workflow | EVALUATES, DECISION | A three-band decision point |
+| BINDING | workflow | type, template | Agent artifact generation |
+| LEARNING RULE | workflow | observes, proposes, boundary | Governed self-modification |
+| APPROVAL | workflow | approvers, channel | Human interaction point |
+| INTERACTION | workflow | target, channel, content | Customer-facing touchpoint |
+| FEEDBACK_RULE | workflow | observes, source, graduation | Satisfaction-driven graduation |
+| TOPOLOGY | workflow | PLATFORM | Infrastructure layout |
+| PIPELINE | workflow | (stages) | Execution structure |
+| RULE | workflow | condition, action | Deterministic rule |
+| RECORD | workflow | (fields) | Structured data |
+| RUNBOOK | harness | (free-text) | Operational runbook |
+| LIFECYCLE | harness | states | State machine |
+| CONFIG | harness | (key-value) | Runtime configuration |
+| METRIC | harness | source, condition | Monitoring condition |
+| SCHEDULE | harness | cron, operation | Cron-triggered operation |
+| STRATEGY | harness | type | Deployment strategy |
+| ROLLBACK | harness | trigger, actions | Recovery trigger and actions |
+| PROMOTE | harness | source, target | Environment promotion |
+| ESCALATION | harness | severity, channels | Escalation policy |
+| NOTIFY | harness | channel, template | Notification template |
+| GRADUATED | harness | pattern, rule | Graduated deterministic rule |
+| REMEDIATION | harness | scope, actions | Autonomous remediation |
+| CONTRACT | coordination | capabilities | Capability declaration |
+
+---
+
 ## Config
 
 Operational parameters that tune the workflow without changing its structure.
@@ -1033,6 +1352,8 @@ CONFIG timeouts:
 
 ## Appendix A: OpSpec Primitives at a Glance
 
+### Workflow Primitives
+
 | Primitive | Purpose | Analogy |
 |-----------|---------|---------|
 | **STAGE** | A phase of work with inputs, operations, outputs | A step in a process flowchart |
@@ -1042,6 +1363,33 @@ CONFIG timeouts:
 | **APPROVAL** | Human interaction point — the executor pauses and waits | A sign-off gate in any approval chain |
 | **INTERACTION** | Customer-facing touchpoint — outbound communication that may await response | A customer service reply, a patient notification, a claim status update |
 | **FEEDBACK_RULE** | Satisfaction-driven graduation based on external feedback signals | A feedback loop that turns positive customer responses into deterministic rules |
+| **TOPOLOGY** | Infrastructure layout — provider, services, bindings | A Terraform resource block |
+| **PIPELINE** | Execution structure with stages and dependencies | A CI/CD pipeline definition |
+| **RULE** | Deterministic condition-action pair | An if-then policy rule |
+| **RECORD** | Structured data referenced by stages and bindings | A data model or schema |
+
+### Harness Primitives
+
+| Primitive | Purpose | Analogy |
+|-----------|---------|---------|
+| **RUNBOOK** | Human-readable operational procedures for incidents | An SRE runbook |
+| **LIFECYCLE** | State machine for deployment or operational lifecycle | A deployment state diagram |
+| **CONFIG** | Runtime configuration consumed by executor | Environment variables / config file |
+| **METRIC** | Monitoring condition with threshold and action | An SLO alert rule |
+| **SCHEDULE** | Cron-triggered operation | A cron job |
+| **STRATEGY** | Deployment strategy (canary, blue-green, rolling) | A release strategy |
+| **ROLLBACK** | Recovery trigger and actions | A rollback plan |
+| **PROMOTE** | Environment promotion with gates | A promotion pipeline |
+| **ESCALATION** | Escalation policy with severity tiers | A PagerDuty escalation policy |
+| **NOTIFY** | Notification template with variables | A Slack/email alert template |
+| **GRADUATED** | Learned pattern graduated to deterministic rule | A production-hardened heuristic |
+| **REMEDIATION** | Autonomous remediation with validation and fallback | An auto-healing runbook |
+
+### Coordination Primitives
+
+| Primitive | Purpose | Analogy |
+|-----------|---------|---------|
+| **CONTRACT** | Capability declaration for multi-agent coordination | A service contract / API spec |
 
 ### NLSpec Primitive Mapping (for software delivery workflows)
 
@@ -1049,7 +1397,7 @@ When OpSpec is used alongside an NLSpec for software delivery, the primitives ma
 
 | NLSpec Primitive | OpSpec Primitive | Parallel |
 |-----------------|-----------------|----------|
-| RECORD | — | OpSpec doesn't define data structures — it references the NLSpec's |
+| RECORD | RECORD | Structured data definition |
 | FUNCTION | STAGE | A phase of work with inputs, operations, outputs |
 | SCENARIO | SCENARIO | Validation of expected behavior |
 | — | GATE | Decision points (no NLSpec equivalent) |
@@ -1058,6 +1406,8 @@ When OpSpec is used alongside an NLSpec for software delivery, the primitives ma
 | — | APPROVAL | Human interaction (no NLSpec equivalent) |
 | — | INTERACTION | Customer-facing touchpoint (no NLSpec equivalent) |
 | — | FEEDBACK_RULE | Satisfaction-driven graduation (no NLSpec equivalent) |
+| — | TOPOLOGY | Infrastructure layout (no NLSpec equivalent) |
+| — | CONTRACT | Multi-agent coordination (no NLSpec equivalent) |
 | DEPENDENCY | EXPECTS | External requirements |
 | EXPORT | EXPORT | What this spec provides to others |
 | Config | Config | Tunable parameters |

@@ -20,7 +20,7 @@ or a supply chain OpSpec has no NLSpec dependency.
 
 | File | Purpose |
 |------|---------|
-| `OPSPEC-TEMPLATE.md` | **The OpSpec language definition.** Primitives (STAGE, GATE, BINDING, LEARNING RULE, APPROVAL, INTERACTION, FEEDBACK_RULE), section structure, executor requirements, binding types, learning governance, scenario conventions, and worked examples. Start here to write an OpSpec. |
+| `OPSPEC-TEMPLATE.md` | **The OpSpec language definition.** 24 primitives across three categories: workflow (STAGE, GATE, BINDING, LEARNING RULE, APPROVAL, INTERACTION, FEEDBACK_RULE, TOPOLOGY, PIPELINE, RULE, RECORD), harness (RUNBOOK, LIFECYCLE, CONFIG, METRIC, SCHEDULE, STRATEGY, ROLLBACK, PROMOTE, ESCALATION, NOTIFY, GRADUATED, REMEDIATION), and coordination (CONTRACT). Section structure, executor requirements, binding types, learning governance, scenario conventions, and worked examples. Start here to write an OpSpec. |
 
 ---
 
@@ -47,6 +47,22 @@ or a supply chain OpSpec has no NLSpec dependency.
 **INTERACTION** — A customer-facing touchpoint where the workflow communicates with an external party (customer, patient, applicant). Unlike APPROVAL (internal review), INTERACTION represents outbound communication that may await a response or collect feedback.
 
 **FEEDBACK_RULE** — Satisfaction-driven graduation: the workflow observes customer feedback signals (ratings, reopens, escalation requests), accumulates positive patterns, and graduates them into deterministic rules that bypass LLM stages. The customer-facing counterpart to LEARNING RULE.
+
+**TOPOLOGY** — Infrastructure layout: the operational surface an OpSpec operates on. Provider, region, services, bindings.
+
+**METRIC** — A monitoring condition with source, threshold, and action. How OpSpecs express health checks, SLOs, and alerting.
+
+**SCHEDULE** — A cron-triggered operation. Time-based execution.
+
+**CONTRACT** — A capability declaration for multi-agent coordination. What an executor can do, what surfaces it manages, what constraints apply.
+
+**RUNBOOK** — Human-readable operational procedures. Reference material for incident response, consulted by both humans and agents.
+
+**LIFECYCLE** — A state machine for deployment or operational lifecycle. Defines valid state transitions.
+
+**STRATEGY** — Deployment strategy (canary, blue-green, rolling, immediate) with rollout parameters.
+
+**GRADUATED** — A learned pattern that has been graduated into a deterministic rule. Bypasses reasoning.
 
 **Executor** — The system that runs the produced program. Can be a workflow engine (Temporal, Airflow), a CI/CD pipeline (GitHub Actions, Jenkins), a controller, or a shell runner.
 
@@ -107,4 +123,4 @@ the OpSpec is incomplete. Fix the spec, not the coding agent.
 
 ---
 
-Version: 0.6.0 | Author: Divyendu Deepak Singh | Date: 2026-04-07
+Version: 0.7.0 | Author: Divyendu Deepak Singh | Date: 2026-04-08
